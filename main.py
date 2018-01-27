@@ -6,6 +6,7 @@ from distutils.version import LooseVersion
 import project_tests as tests
 from glob import glob
 import numpy as np
+import scipy.misc
 
 
 # Check TensorFlow Version
@@ -104,9 +105,10 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     accuracy_operation = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
     #Evaluate the accuracy within each class
     per_class_accuracy = None # tf.metrics.mean_per_class_accuracy(labels=tf.argmax(correct_label1, 1), predictions=tf.argmax(logits, 1), num_classes=num_classes)
+    inferences = tf.argmax(nn_last_layer,3)
     predictions = tf.argmax(logits, 1)
     ground_truths = tf.argmax(correct_label1, 1)
-    return logits, accuracy_operation, train_op, per_class_accuracy, predictions, ground_truths
+    return logits, accuracy_operation, train_op, per_class_accuracy, predictions, ground_truths, inferences
 # tests.test_optimize(optimize)
 
 
@@ -139,9 +141,9 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, accuracy_operat
             # print(j)
             images_input, images_labels = next(get_batches_fn)
             #obtain the weights for each type of label to be inputted into the training
-            weights = [0]*len(set(images_labels*1))
-            for lab in list(set(images_labels*1)):
-                weights[lab] = len(np.where(np.multiply(images_labels,1)==lab)[0])*1.0/len(images_labels)
+            # weights = [0]*len(set(images_labels*1))
+            # for lab in list(set(images_labels*1)):
+            #     weights[lab] = len(np.where(np.multiply(images_labels,1)==lab)[0])*1.0/len(images_labels)
             sess.run(train_op, feed_dict={image_input:images_input, correct_label:images_labels, keep_prob:0.5})
             accuracy = sess.run(accuracy_operation, feed_dict={image_input:images_input, correct_label:images_labels, keep_prob:1.0})
             preds = sess.run(predictions, feed_dict={image_input:images_input, correct_label:images_labels, keep_prob:1.0})
@@ -177,7 +179,7 @@ def run():
     num_classes = 2
     image_shape = (160, 576)
     data_dir = './data'
-    runs_dir = '/runs'
+    runs_dir = './runs'
     #obtain the number of images in the training set
     images_count = len(glob(os.path.join(data_dir, 'data_road/training/image_2/*.png')))
     # print(images_count)
@@ -204,12 +206,12 @@ def run():
         # Create function to get batches
         BATCH_SIZE = 15
         get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape, BATCH_SIZE)
-        a = next(get_batches_fn)
+        # a = next(get_batches_fn)
         # print(type(a))
         # print(len(a))
         # print(type(a[0]))
         # print(len(a[0]))
-        imgs, labels = a
+        # imgs, labels = a
         # print(imgs.shape)
         # print(labels.shape)
         # print(np.unique(labels))
@@ -224,7 +226,7 @@ def run():
         # print(correct_label)
         # print(tf.trainable_variables())
         learning_rate = 1e-3
-        logits, accuracy_operation, train_op, per_class_accuracy, predictions, ground_truths = optimize(output, correct_label, learning_rate, num_classes)
+        logits, accuracy_operation, train_op, per_class_accuracy, predictions, ground_truths, inferences = optimize(output, correct_label, learning_rate, num_classes)
 
         # TODO: Train NN using the train_nn function
         EPOCHS = 50
@@ -233,7 +235,27 @@ def run():
             correct_label, keep, learning_rate, images_count, image_shape, data_dir, per_class_accuracy, predictions, ground_truths)
 
         # TODO: Save inference data using helper.save_inference_samples
-        #  helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
+        #helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
+        #Use the get batches function in the helper to obtain the batches of the testing data
+        get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/testing'), image_shape, BATCH_SIZE, training=False)
+        #for each batch, return the picture predictions
+        for i in range(0,images_count,BATCH_SIZE):
+            images_input, images_names = next(get_batches_fn)
+            infs = sess.run(inferences, feed_dict={w0:images_input, keep:1.0})
+            # print(infs.shape)
+            # print(type(infs))
+            infs = infs.reshape([images_input.shape[0],images_input.shape[1],images_input.shape[2],1])
+            for j in range(infs.shape[0]):
+                inf_image = infs[j]
+                # print(inf_image.shape)
+                mask = np.dot(inf_image, np.array([[0, 255, 0, 127]]))
+                mask = scipy.misc.toimage(mask, mode="RGBA")
+                street_im = scipy.misc.toimage(images_input[j])
+                street_im.paste(mask, box=None, mask=mask)
+                scipy.misc.imsave(os.path.join(runs_dir, images_names[j]), np.array(street_im))
+
+
+
 
         # OPTIONAL: Apply the trained model to a video
 
